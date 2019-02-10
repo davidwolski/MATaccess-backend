@@ -23,7 +23,7 @@ include_states <- c("MA", "OH", "FL", "CA")
 # Subset data for simple use case -----------------------------------------
 
 # Set model type ("full", "validation", or "debug")
-mtype <- "validation" 
+mtype <- "full" 
 
 # For now we'll filter the data to one state only. In order to
 # predict 2018 data using additional regressors we lag the data by one year,
@@ -106,8 +106,8 @@ if (mtype == "full" | mtype == "validation") {
     arrange(fips_county_code, year)
   
   # Get 2010 back into the data frame by building an index and splitting it per
-  # county, at which point we can add a row to each group. This is necessary since
-  # we're lagging the data and are not making predictions for 2010.
+  # county, at which point we can add a row to each group. This is necessary
+  # since we're lagging the data and are not making predictions for 2010.
   
   # First we build indices based on the frcst data frame
   indices <- seq(nrow(frcst)) %>% 
@@ -122,7 +122,13 @@ if (mtype == "full" | mtype == "validation") {
     ungroup() %>% 
     mutate(fips_county_code = ifelse(is.na(fips_county_code), 
                                      lead(fips_county_code),
-                                     fips_county_code)) 
+                                     fips_county_code)) %>% 
+    # A few forecasts produce negative values, which isn't a real-world
+    # possibility, so we'll set those predicted values to 0 by moving both the
+    # predicted value and it's lower and upper bound up by it's predicted value
+    mutate(yhat_lower = ifelse(yhat < 0, yhat_lower-yhat, yhat_lower),
+           yhat_upper = ifelse(yhat < 0, yhat_upper-yhat, yhat_upper),
+           yhat = ifelse(yhat < 0, yhat-yhat, yhat))
   
   
   # Now we can merge our forecasting results with the input data frame. Note that
