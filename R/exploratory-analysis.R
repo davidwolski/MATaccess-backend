@@ -1,59 +1,35 @@
 library(tidyverse)
 library(data.table)
+library(RColorBrewer)
 library(ggrepel)
+library(corrplot)
 options(stringsAsFactors = FALSE)
 
 
-# Map states to postal abbreviations
-state_map <- read.csv("rawdata/state-map.csv")
 
-# Read in CDC data
-wonder_data <- read.table("rawdata/wonder-data.txt", header = TRUE, fill = TRUE)
+# Load data ---------------------------------------------------------------
 
-merged_data <- read.csv("output/merged-data.csv")
+load("output/merged-data.RData")
 
-# Clean and summarise CDC data at state level
-merged_data_state <- merged_data %>%
-  as_tibble() %>% 
-  mutate(Deaths = as.numeric(Deaths),
-         Population = as.numeric(Population),
-         State = as.character(State)) %>%  
-  filter(Year == 2016 & Deaths != "Suppressed") %>% 
-  group_by(State) %>% 
-  summarise(total.state.deaths = sum(Deaths),
-            total.state.population = sum(Population)) %>% 
-  left_join(state_map, by = c("State" = "state.full"))
 
-# Get first 10 rows of medicare data
-cms_head <- read.csv("~/Downloads/medicare-2016.csv", nrows = 10)
-colnames(cms_head)
 
-# Read in interesting columns from medicare data
-cms_data <- fread("~/Downloads/medicare-2016.csv", 
-                  select = c("nppes_provider_state", 
-                             "drug_name", 
-                             "total_day_supply"))  
+# Plot prescribing rates vs mortality -------------------------------------
 
-# Quick and dirty assessment of drug 
-cms_data_2 <- cms_data %>% 
-  rename(state.postal = nppes_provider_state,
-         drug.name = drug_name,
-         total.day.supply = total_day_supply) %>% 
-  group_by(state.postal, drug.name) %>% 
-  summarise(sum.total.day.supply = sum(total.day.supply)) %>% 
-  filter(grepl("CODONE",drug.name)) %>% 
-  ungroup() %>% 
-  group_by(state.postal) %>% 
-  summarise(codone.sum.total = sum(sum.total.day.supply))
 
-# Combine data
-combo_data <- left_join(wonder_data, cms_data_2) %>% 
-  mutate(day.supply.per.person = codone.sum.total/total.state.population,
-         codone.sum.total.in.k = codone.sum.total/10e5)
+merged_state <- merged %>%
+  filter(year == 2017) %>% 
+  mutate(prescriptions = (prescribing_rate/100)*population) %>% 
+  group_by(state_postal) %>% 
+  summarise(state.deaths = sum(deaths, na.rm = TRUE),
+            state.population = sum(population, na.rm = TRUE),
+            state.prescriptions = sum(prescriptions, na.rm = TRUE)) %>% 
+  mutate(state.prescription.rate = (state.prescriptions/state.population)*100,
+         state.death.rate = (state.deaths/state.population)*10000)
 
+  
 # Plot the data
-gg <- combo_data %>% 
-  ggplot(aes(codone.sum.total.in.k, total.state.deaths)) +
+gg <- merged_state %>% 
+  ggplot(aes(state.prescription.rate, state.death.rate)) +
   geom_point(color = "grey20", size = 2) +
   theme(panel.background = element_rect(fill = "grey90")) +
   theme(panel.grid.major.x = element_blank()) +
@@ -63,10 +39,40 @@ gg <- combo_data %>%
   theme(axis.title = element_text(size = 12)) +
   theme(axis.text = element_text(size = 10)) +
   # Create labels for genes
-  geom_text_repel(aes(label = state.postal), size = 2, fontface = "bold",
+  geom_text_repel(aes(label = state_postal), size = 2, fontface = "bold",
                   color = "grey20") +
   # Create plot labels
-  labs( x = "Day's supply of 'codone' drugs in million", 
-        y = "Total overdose-related deaths")
-ggsave("plots/pills-vs-deaths-by-state.png",gg, 
-      width = 5, height = 5)
+  labs( x = "Prescribing rate per 100", 
+        y = "Mortality rate per 10,000")
+ggsave("plots/pills-vs-deaths-by-state.pdf",gg,
+       width = 5, height = 5)
+
+
+
+# Plot correlations of variables ------------------------------------------
+
+merged_2017 <- merged %>% 
+  # filter(year == 2017) %>% 
+  select(6:18) %>% 
+  select(-deaths, -population)
+  
+
+m <- cor(merged_2017, use = "na.or.complete")
+
+cols <- colorRampPalette(rev(brewer.pal(9, "RdBu")))
+corrplot(m, method = "color", order = "hclust", col = cols(100))
+corrplot(m, 
+         method="color", 
+         col=cols(200),  
+         type="upper", 
+         order="hclust", 
+         # addCoef.col = "black", # Add coefficient of correlation
+         tl.col="black",
+         tl.srt=45, #Text label color and rotation
+         # Combine with significance
+         # p.mat = p.mat, sig.level = 0.01, insig = "blank", 
+         # hide correlation coefficient on the principal diagonal
+         diag=FALSE 
+)
+
+

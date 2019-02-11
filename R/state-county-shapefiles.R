@@ -1,5 +1,6 @@
 library(tidyverse)
-library(tigris)
+library(sf)
+library(USAboundaries)
 
 
 # Select which states to subset the shapefiles to -------------------------
@@ -9,24 +10,21 @@ library(tigris)
 # the prophet-model.R script!
 
 # Either use all states
-# include_states <- state.abb %>% 
-#   .[. != c("AK", "HI")]
+include_states <- state.abb %>%
+  .[!(. %in% c("AK", "HI"))]
 
 # Or subset to a few states
-include_states <- c("MA", "OH", "FL", "CA")
+# include_states <- c("MA", "OH", "FL", "CA")
 
 
 # Load and subset shapefile -----------------------------------------------
 
 # Load county and state data
-all_states <- states() %>%
-  .[which(.$STUSPS %in% include_states),]
 
-all_counties <- counties() %>%
-  .[which(.$STATEFP %in% all_states$STATEFP),] %>% 
-  geo_join(.,all_states[,c("STATEFP", "STUSPS", "NAME")], 
-           by =  c("STATEFP"="STATEFP"),
-           how = "inner")
+all_states <-  as_Spatial(us_states(resolution = "high", 
+                                    states = include_states))
+all_counties <-  as_Spatial(us_counties(resolution = "high",
+                                        states = include_states))
 
 
 # Write out reduced shapefiles --------------------------------------------

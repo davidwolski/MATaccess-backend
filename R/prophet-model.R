@@ -1,6 +1,7 @@
 library(tidyverse)
 library(lubridate)
 library(prophet)
+library(furrr)
 options(stringsAsFactors = FALSE)
 
 
@@ -13,17 +14,17 @@ load("output/merged-data.RData")
 # Select states to include in the model -----------------------------------
 
 # Either use all states
-# include_states <- state.abb %>% 
-#   .[. != c("AK", "HI")]
+include_states <- state.abb %>%
+.[!(. %in% c("AK", "HI"))]
 
 # Or subset to a few states
-include_states <- c("MA", "OH", "FL", "CA")
+# include_states <- c("MA", "OH", "FL", "CA")
 
 
 # Subset data for simple use case -----------------------------------------
 
 # Set model type ("full", "validation", or "debug")
-mtype <- "full" 
+mtype <- "validation" 
 
 # For now we'll filter the data to one state only. In order to
 # predict 2018 data using additional regressors we lag the data by one year,
@@ -64,6 +65,7 @@ if (mtype == "full") {
   df <- merged_subset
 }
 
+future::plan(multiprocess)
 # Then run the appropriate model
 if (mtype == "full" | mtype == "validation") {
   # Run prophet forecast by county. Since we're dealing with annual data, we can 
@@ -87,12 +89,12 @@ if (mtype == "full" | mtype == "validation") {
       mutate(m = map(m, add_regressor, 'age_median')) %>% 
       mutate(m = map(m, add_regressor, 'sex_male_perc')) %>% 
       # Fit prophet model
-      mutate(m = map2(m, data, fit.prophet)) %>%
+      mutate(m = future_map2(m, data, fit.prophet)) %>%
       # Create future dataframe
       mutate(future = map(m, make_future_dataframe, period = 1, freq = 'year')) %>% 
       mutate(future = nest(df, -fips_county_code)$data) %>% 
       # Predict 
-      mutate(forecast = map2(m, future, predict))
+      mutate(forecast = future_map2(m, future, predict))
   )
   
   # Unnest forecast data to get betahats. Note that we pull out the year in form
